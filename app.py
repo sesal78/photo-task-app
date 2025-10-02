@@ -929,7 +929,7 @@ if page == "History":
             with st.expander(f"**{i}.** {task['date']} — {task['title']}", expanded=(i==1)):
                 st.markdown(f"**Summary:** {task['summary']}")
                 st.markdown(f"**When/Where:** {task['when_where']}")
-                st.markdown(f"**Gear:** {task.get('gear', f\"{task.get('camera','')} + {task.get('lens','')}\")}") 
+                st.markdown(f"**Gear:** {task.get('gear', task.get('camera', '') + ' + ' + task.get('lens', ''))}") 
                 
                 st.markdown("**Exposure Presets:**")
                 for preset in task.get("exposure_presets", []):
