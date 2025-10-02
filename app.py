@@ -859,8 +859,43 @@ if page == "Planner":
     if not is_digital:
         st.sidebar.markdown("---")
         st.sidebar.markdown("**🎞️ Film Settings**")
-        film_stock = st.sidebar.text_input("Film Stock", "Kodak Portra 400")
-        film_iso = st.sidebar.text_input("Film ISO", "400")
+        
+        # Smart film stock selection based on color mode
+        if color_mode == "Black & White":
+            film_options = [
+                "Ilford HP5 Plus 400",
+                "Kodak Tri-X 400",
+                "Ilford FP4 Plus 125",
+                "Kodak T-Max 400",
+                "Ilford Delta 3200",
+                "Fomapan 400",
+                "Kodak Double-X 250"
+            ]
+            default_film = "Ilford HP5 Plus 400"
+        else:  # Color
+            film_options = [
+                "Kodak Portra 400",
+                "Kodak Portra 160",
+                "Kodak Portra 800",
+                "Fujifilm 400",
+                "Fujifilm 200",
+                "Kodak Ektar 100",
+                "Fujifilm Superia 400",
+                "Cinestill 800T",
+                "Kodak Gold 200",
+                "Fujifilm Velvia 50",
+                "Kodak ColourPlus 200",
+                "Kodak Ultramax 400",
+                "CineStill800T 800",
+                "CineStill400D 400"
+            ]
+            default_film = "Kodak Portra 400"
+        
+        film_stock = st.sidebar.selectbox("Film Stock", film_options, index=0)
+        
+        # Auto-extract ISO from film name, or allow manual override
+        iso_from_name = ''.join(filter(str.isdigit, film_stock.split()[-1]))
+        film_iso = st.sidebar.text_input("Film ISO", iso_from_name if iso_from_name else "400")
     
     constraints = st.sidebar.text_area("⚖️ Constraints/Preferences", "Stay local, avoid crowds")
 
