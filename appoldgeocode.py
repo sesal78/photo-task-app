@@ -4,7 +4,6 @@ import os
 import random
 import requests
 from datetime import datetime
-import math
 
 # -------------------------------
 # Storage (local JSON)
@@ -208,36 +207,6 @@ def get_weather(lat, lon):
         w = fallback["current_weather"]
         return f"{w.get('temperature','?')}°C | wind {w.get('windspeed','?')}km/h"
     return ""
-
-# -------------------------------
-# Geospatial Utilities
-# -------------------------------
-def haversine_distance(lat1, lon1, lat2, lon2):
-    """Calculate distance between two points in meters"""
-    R = 6371000  # Earth radius in meters
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi/2)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda/2)**2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-
-def build_walkable_route(pois, start_lat, start_lon, max_pois):
-    """Build a walkable route using nearest-neighbor greedy algorithm"""
-    if not pois or max_pois <= 0:
-        return []
-    
-    route = []
-    current_lat, current_lon = start_lat, start_lon
-    remaining = pois[:]
-    
-    for _ in range(min(max_pois, len(remaining))):
-        # Find nearest POI to current position
-        nearest = min(remaining, key=lambda p: haversine_distance(current_lat, current_lon, p["lat"], p["lon"]))
-        route.append(nearest)
-        remaining.remove(nearest)
-        current_lat, current_lon = nearest["lat"], nearest["lon"]
-    
-    return route
 
 # -------------------------------
 # Enhanced Photo Task Planner Core
@@ -784,87 +753,87 @@ class PhotoTaskPlanner:
         if "cafe" in t or "restaurant" in t or "bar" in t: return "hospitality"
         return "general"
 
-    def poi_task_templates(self, poi_name, category, time_of_day, weather_summary):
-        """Return location-specific steps and composition prompts tailored to POI"""
+    def poi_task_templates(self, category, time_of_day, weather_summary):
+        """Return steps and composition prompts tailored to POI category"""
         common = {
             "viewpoint": (
                 [
-                    f"At {poi_name}, shoot 3 layered frames with clear foreground interest",
-                    f"Use telephoto to compress the skyline/landscape from {poi_name}",
-                    f"Wait for a person to enter frame at {poi_name} to add human scale",
-                    f"If windy at {poi_name}, stabilize and try 1/10–1/30s motion blur of moving elements"
+                    "From the viewpoint, shoot 3 layered city/landscape frames with clear foreground",
+                    "Use a longer focal length to compress the skyline; look for repeating patterns",
+                    "Wait for a person entering frame to add scale",
+                    "If windy, stabilize and try 1/10–1/30s motion blur of traffic/people"
                 ],
                 ["Layered depth", "Leading lines to horizon", "Human scale against vast scene", "Golden/blue hour glow"]
             ),
             "museum_art": (
                 [
-                    f"Inside {poi_name}, focus on symmetry and clean lines in exhibits",
-                    f"Capture visitors interacting with exhibits at {poi_name} (no flash)",
-                    f"Isolate textures and materials with tight framing at {poi_name}",
-                    f"Use reflections in glass cases at {poi_name} for layered abstracts"
+                    "Focus on symmetry and clean lines in exhibits and halls",
+                    "Capture visitors interacting with exhibits (no flash)",
+                    "Isolate textures and materials with tight framing",
+                    "Use reflections in glass cases for layered abstracts"
                 ],
                 ["Symmetry", "Negative space", "Reflections", "Texture isolation"]
             ),
             "market": (
                 [
-                    f"At {poi_name}, capture buyer/seller gestures and exchanges",
-                    f"Shoot color pops of produce or textiles at {poi_name}",
-                    f"Low angle through hanging items at {poi_name} for depth",
-                    f"Pair wide environmental shots with tight details at {poi_name}"
+                    "Capture buyer/seller gestures and exchanges",
+                    "Shoot color pops of produce or textiles",
+                    "Low angle through hanging items for depth",
+                    "Wide environmental + tight detail pairs"
                 ],
                 ["Gesture/decisive moment", "Color blocking", "Frame within frame", "Leading lines through aisles"]
             ),
             "park": (
                 [
-                    f"At {poi_name}, use tree branches for natural framing",
-                    f"Macro details of leaves, bark, and textures at {poi_name}",
-                    f"Silhouettes of runners/walkers at {poi_name} during golden hour",
-                    f"Telephoto compression of foliage layers at {poi_name}"
+                    "Use tree branches for natural framing",
+                    "Macro details of leaves, bark, and textures",
+                    "Silhouettes of runners/walkers at golden hour",
+                    "Telephoto compression of layers of foliage"
                 ],
                 ["Natural frames", "Patterns in nature", "Silhouettes", "Foreground interest"]
             ),
             "coast": (
                 [
-                    f"At {poi_name}, experiment with shutter speeds for wave motion",
-                    f"Capture reflections in wet sand or puddles at {poi_name}",
-                    f"Silhouettes against sunset/sunrise at {poi_name}",
-                    f"Use pier/marina structures at {poi_name} as strong leading lines"
+                    "Experiment with shutter speeds for wave motion",
+                    "Reflections in wet sand or puddles",
+                    "Silhouettes against sunset/sunrise",
+                    "Pier/marina structures as strong leading lines"
                 ],
                 ["Motion blur", "Reflections", "Minimalism", "Leading lines"]
             ),
             "bridge_pier": (
                 [
-                    f"Shoot centerline symmetry on {poi_name}",
-                    f"Photograph {poi_name} from below/side for graphic geometry",
-                    f"Include passing subjects on {poi_name} for scale/motion",
-                    f"Long exposure at {poi_name} to smooth water if applicable"
+                    "Centerline symmetry on the bridge/pier",
+                    "Shoot from below/side for graphic geometry",
+                    "Include passing subjects for scale/motion",
+                    "Long exposure to smooth water if applicable"
                 ],
                 ["Symmetry", "Geometric patterns", "Scale with human element", "Long exposure water"]
             ),
             "mall": (
                 [
-                    f"At {poi_name}, capture architectural patterns and escalator geometry",
-                    f"Reflections in storefront glass at {poi_name}",
-                    f"Candid shopper interactions at {poi_name}",
-                    f"Top-down or low-angle abstracts at {poi_name}"
+                    "Architectural patterns and escalator geometry",
+                    "Reflections in storefront glass",
+                    "Candid shopper interactions",
+                    "Top-down or low-angle abstracts"
                 ],
                 ["Repetition", "Reflections", "Leading lines", "Frame within frame"]
             ),
             "hospitality": (
                 [
-                    f"At {poi_name}, shoot window light portraits (ask permission)",
-                    f"Detail shots of cups/plates with texture at {poi_name}",
-                    f"Ambient scene with layered foreground at {poi_name}",
-                    f"Reflections through window glass at {poi_name}"
+                    "Window light portraits (ask permission)",
+                    "Detail shots of cups/plates with texture",
+                    "Ambient scene with layered foreground",
+                    "Reflections through window glass"
                 ],
                 ["Window light", "Texture details", "Layering", "Reflections"]
             ),
             "general": (
                 [
-                    f"At {poi_name}, scout and find the most distinctive visual elements",
-                    f"Shoot 1 wide, 2 medium, 2 tight frames at {poi_name} for a mini-story",
-                    f"Look for symmetry, reflections, or bold shadows at {poi_name}",
-                    f"Include at least 1 human element at {poi_name} for scale/story"
+                    "Scout and find the most distinctive visual elements",
+                    "Shoot 1 wide, 3 medium, 3 tight frames for a mini-story",
+                    "Look for symmetry, reflections, or bold shadows",
+                    "Include at least 1 human element for scale/story"
                 ],
                 ["Wide–medium–tight sequencing", "Reflections", "Symmetry", "Human scale"]
             )
@@ -873,7 +842,7 @@ class PhotoTaskPlanner:
         
         # Condition-aware tweaks
         if "rain" in weather_summary.lower() or "precipitation" in weather_summary.lower():
-            steps = [f"At {poi_name}, use shelter and focus on reflections and umbrellas"] + steps
+            steps = ["Use shelter and focus on reflections and umbrellas", "Shoot through glass for layered rainy scenes"] + steps
             prompts = list(set(prompts + ["Rain reflections", "Through-glass layering"]))
         if time_of_day in ["golden hour", "blue hour"]:
             prompts = list(set(prompts + ["Golden/blue hour color contrast"]))
@@ -1087,128 +1056,141 @@ class PhotoTaskPlanner:
         return " | ".join(contingencies)
 
     def generate_task(self, params, history):
-        """Generate enriched task with walkable multi-POI itinerary + location-aware checklists"""
+        """Generate complete enriched task with worldwide location support + POI intelligence"""
         
+        # 🌍 Try to geocode and fetch POIs
         geo = geocode_location(params["location"])
-        selected_pois, weather_summary = [], ""
-        
-        if geo:
-            with st.spinner(f"🔍 Finding nearby POIs and building route... (via {geo.get('source','API')})"):
-                pois = fetch_pois(geo["lat"], geo["lon"], radius_m=800)
-                weather_summary = get_weather(geo["lat"], geo["lon"])
-                
-                # Avoid repeating same POIs today
-                used_ids_today = {t.get("poi_id") for t in history if t.get("date","").startswith(datetime.now().strftime("%Y-%m-%d"))}
-                available_pois = [p for p in pois if p["id"] not in used_ids_today and p.get("name")]
-                
-                # Duration-based POI count
-                if params["duration"] <= 30:
-                    max_pois = 1
-                elif params["duration"] <= 120:
-                    max_pois = 2
-                else:
-                    max_pois = 3
-                
-                # Build walkable route using nearest-neighbor
-                selected_pois = build_walkable_route(available_pois, geo["lat"], geo["lon"], max_pois)
-
-        # Base steps scale with duration
-        base_steps = [
-            "🔍 Scout the overall area for 5–10 minutes, noting light patterns and flow",
-            "📸 Take 1 wide establishing shot that captures the environment's character",
-            "🔬 Capture 3 texture/detail studies that define the location",
-            "👥 Find 2 human or motion moments that bring life into the frame",
-            "🎨 Experiment with 2 unusual perspectives (low angle, high angle, or tilted)"
-        ]
-        if params["duration"] > 60:
-            base_steps.append("📖 Build a 3–5 photo series that tells a cohesive story")
-        if params["duration"] > 120:
-            base_steps.append("⏱️ At one spot, stay for 15 mins working multiple variations of the same subject")
-        if params["duration"] > 240:
-            base_steps.append("🎬 Attempt a mini-project: 12 images that together narrate the atmosphere")
-
-        # Build POI-specific walkable itinerary steps
+        poi = None
         poi_steps = []
         poi_prompts = []
+        weather_summary = ""
         
-        if selected_pois:
-            poi_steps.append(f"🗺️ **Walkable Route ({len(selected_pois)} stops):**")
-            for i, poi in enumerate(selected_pois, 1):
-                poi_name = poi.get('name', '(Unnamed)')
-                category = self.classify_poi_category(poi["tags"])
-                steps_for_poi, prompts_for_poi = self.poi_task_templates(poi_name, category, params["time_of_day"], weather_summary)
+        if geo:
+            with st.spinner(f"🔍 Finding nearby points of interest... (via {geo.get('source', 'API')})"):
+                pois = fetch_pois(geo["lat"], geo["lon"], radius_m=800)
                 
-                # Calculate distance from previous POI
-                if i == 1:
-                    dist_m = haversine_distance(geo["lat"], geo["lon"], poi["lat"], poi["lon"])
-                    poi_steps.append(f"**Stop {i}: {poi_name}** (~{int(dist_m)}m from start)")
-                else:
-                    prev_poi = selected_pois[i-2]
-                    dist_m = haversine_distance(prev_poi["lat"], prev_poi["lon"], poi["lat"], poi["lon"])
-                    poi_steps.append(f"**Stop {i}: {poi_name}** (~{int(dist_m)}m walk)")
+                # Get weather
+                weather_summary = get_weather(geo["lat"], geo["lon"])
                 
-                # Add location-specific tasks
-                poi_steps.extend([f"  • {s}" for s in steps_for_poi[:4]])
-                poi_prompts.extend(prompts_for_poi)
-            
-            poi_steps.append("")  # spacing before base steps
+                # Avoid repeating same POI same day
+                used_poi_ids_today = set()
+                today_str = datetime.now().strftime("%Y-%m-%d")
+                for t in history:
+                    if t.get("date","").startswith(today_str) and t.get("poi_id"):
+                        used_poi_ids_today.add(t["poi_id"])
+                
+                # Choose first unused named POI
+                candidate = None
+                for p in pois:
+                    if p["id"] in used_poi_ids_today:
+                        continue
+                    if p["name"]:
+                        candidate = p
+                        break
+                
+                # Fallback to any unused
+                if not candidate and pois:
+                    for p in pois:
+                        if p["id"] not in used_poi_ids_today:
+                            candidate = p
+                            break
+                
+                if candidate:
+                    category = self.classify_poi_category(candidate["tags"])
+                    poi_steps, poi_prompts = self.poi_task_templates(category, params["time_of_day"], weather_summary)
+                    poi = candidate
         
-        # Fallback: use static location guides if no POIs
-        if not selected_pois:
-            loc_data = self.analyze_location(params["location"])
-            if loc_data.get("specific_steps"):
-                poi_steps.append("📍 **Location-specific tasks:**")
-                poi_steps.extend([f"  • {s}" for s in loc_data.get("specific_steps", [])[:5]])
-                poi_steps.append("")
+        # Fallback to static location guides
+        loc_data = self.analyze_location(params["location"])
+        
+        # Duration-scaled base steps
+        base_steps = [
+            "Scout area for 5–10 minutes",
+            "Shoot 1 wide establishing shot",
+            "Capture 3 strong details/textures",
+            "Find 2 human/motion moments",
+            "Experiment with 2 unusual angles"
+        ]
 
-        # Merge final step list
-        steps = poi_steps + base_steps
+        # Scale checklist length by duration
+        if params["duration"] > 60:
+            base_steps += [
+                "Create 1 storytelling sequence of 3–5 frames",
+                "Look for reflections and abstract compositions"
+            ]
+        if params["duration"] > 120:
+            base_steps += [
+                "Photograph a subject from 3 different perspectives (near/mid/far)",
+                "Dedicate 15 mins to a single scene, working multiple variations"
+            ]
+        if params["duration"] > 240:
+            base_steps += [
+                "Focus on a thematic series (shadows, reflections, gestures, etc.)",
+                "Build a mini-project: 12 images that could tell a story together",
+                "Review work mid-session and adjust approach"
+            ]
 
-        exposures = self.generate_exposures(params["is_digital"], params.get("film_iso","400"), params["time_of_day"])
+        # Combine POI-specific + location-specific + base steps
+        steps_loc_specific = poi_steps if poi_steps else loc_data.get("specific_steps", [])[:]
+        if steps_loc_specific:
+            steps = steps_loc_specific[:min(5, len(steps_loc_specific))] + base_steps
+        else:
+            steps = base_steps
+
+        # Add POI header if present
+        if poi:
+            poi_name = poi.get('name','(Unnamed)')
+            header = f"📍 Focus location: {poi_name}"
+            steps.insert(0, header)
+
+        # Add suggested spots to the very beginning (if available from static guides)
+        if loc_data.get("suggested_spots"):
+            spots_text = "📍 Suggested spots: " + ", ".join(loc_data["suggested_spots"][:3])
+            steps.insert(0, spots_text)
+
+        exposures = self.generate_exposures(
+            params["is_digital"], 
+            params.get("film_iso", "400"), 
+            params["time_of_day"]
+        )
+        
+        # Merge POI prompts with type-based prompts
         comp_prompts = self.get_composition_prompts(params["photo_type"])
         if poi_prompts:
-            comp_prompts = list(set(comp_prompts + poi_prompts))[:7]
+            comp_prompts = list(set(comp_prompts + poi_prompts))[:7]  # max 7 prompts
 
-        gear = f"{params['camera']} + {params['lens']} ({params['color_mode']})"
+        # Build gear string
+        gear = f"{params['camera']} + {params['lens']}; {params['color_mode']}"
         if params['is_digital']:
             gear += "; RAW+JPEG recommended"
         else:
-            gear += f"; {params.get('film_stock','Film')} @ ISO {params.get('film_iso','400')}"
+            gear += f"; {params.get('film_stock', 'Film')} @ ISO {params.get('film_iso', '400')}"
 
-        # Calculate total walk distance
-        total_distance = 0
-        if selected_pois:
-            total_distance += haversine_distance(geo["lat"], geo["lon"], selected_pois[0]["lat"], selected_pois[0]["lon"])
-            for i in range(1, len(selected_pois)):
-                total_distance += haversine_distance(
-                    selected_pois[i-1]["lat"], selected_pois[i-1]["lon"],
-                    selected_pois[i]["lat"], selected_pois[i]["lon"]
-                )
-
-        # Task object
         task = {
             "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "title": f"{params['time_of_day'].title()} {params['photo_type'].title()} @ {params['location']}",
-            "summary": f"{params['photo_type']} photo walk in {params['location']} | {len(selected_pois)} POI(s) | ~{int(total_distance)}m route | {params['duration']} mins | {len(steps)} steps",
+            "summary": f"{params['photo_type']} session in {params['location']} | {params['camera']} + {params['lens']} | {params['duration']} mins | Checklist: {len(steps)} steps",
             "when_where": f"{params['time_of_day'].title()} ({params['duration']} min) | {params['location']}",
             "photo_type": params["photo_type"],
             "camera": params["camera"],
             "lens": params["lens"],
             "gear": gear,
-            "lens_rationale": self.lens_rationale.get(params["lens"], "General-purpose lens"),
+            "lens_rationale": self.lens_rationale.get(params["lens"], "General-purpose lens for this task"),
             "exposure_presets": exposures,
             "steps": steps,
             "composition_prompts": comp_prompts,
             "contingencies": self.generate_contingencies(params),
             "success_criteria": self.generate_success_criteria(params),
             "safety_note": self.get_safety_note(params),
-            "color_mode": params["color_mode"],
-            "weather_summary": weather_summary,
-            "poi_id": ", ".join([p["id"] for p in selected_pois]),
-            "poi_name": ", ".join([p.get("name","") for p in selected_pois]),
-            "total_walk_distance_m": int(total_distance)
+            "color_mode": params['color_mode'],
+            "poi_id": poi["id"] if poi else "",
+            "poi_name": poi.get("name","") if poi else "",
+            "poi_category": self.classify_poi_category(poi["tags"]) if poi else "",
+            "poi_coords": {"lat": poi["lat"], "lon": poi["lon"]} if poi else None,
+            "weather_summary": weather_summary
         }
 
+        # Weekly rotation enforcement
         if self.is_recent_repeat(task, history, window=7):
             task = self.generate_variation(task)
 
@@ -1249,7 +1231,7 @@ page = st.sidebar.radio("📂 Navigate", ["Planner", "History"])
 # -------------------------------
 if page == "Planner":
     st.title("📷 Daily Photography Task Planner")
-    st.markdown("*Generate detailed, location-aware photography tasks with walkable multi-POI itineraries — works anywhere in the world.*")
+    st.markdown("*Generate detailed, location-aware photography tasks tailored to your gear and conditions — works anywhere in the world.*")
 
     st.sidebar.header("📋 Today's Setup")
     
@@ -1350,7 +1332,7 @@ if page == "Planner":
             st.markdown(f"**📷 Gear:** {task['gear']}")
         
         if task.get('poi_name'):
-            st.info(f"**📍 Route POIs:** {task['poi_name']}")
+            st.info(f"**📍 Focus POI:** {task['poi_name']} ({task.get('poi_category','')})")
         
         if task.get('weather_summary'):
             st.info(f"**🌦️ Current conditions:** {task['weather_summary']}")
@@ -1361,9 +1343,9 @@ if page == "Planner":
         for preset in task["exposure_presets"]:
             st.markdown(f"- {preset}")
 
-        st.markdown("### ✅ Step-by-Step Walkable Itinerary")
-        for step in task["steps"]:
-            st.markdown(step)
+        st.markdown("### ✅ Step-by-Step Checklist")
+        for i, step in enumerate(task["steps"], 1):
+            st.markdown(f"{i}. {step}")
 
         st.markdown("### 🎨 Composition Prompts")
         for p in task["composition_prompts"]:
@@ -1389,4 +1371,35 @@ if page == "History":
     history = load_history()
     
     if not history:
-        st.info("📭 No tasks saved yet
+        st.info("📭 No tasks saved yet. Generate your first task to begin tracking!")
+    else:
+        for i, task in enumerate(reversed(history), 1):
+            with st.expander(f"**{i}.** {task['date']} — {task['title']}", expanded=(i==1)):
+                st.markdown(f"**Summary:** {task['summary']}")
+                st.markdown(f"**When/Where:** {task['when_where']}")
+                
+                # Fixed gear display
+                gear_display = task.get('gear', task.get('camera', '') + ' + ' + task.get('lens', ''))
+                st.markdown(f"**Gear:** {gear_display}")
+                
+                if task.get('poi_name'):
+                    st.markdown(f"**📍 Focus POI:** {task['poi_name']} ({task.get('poi_category','')})")
+                
+                if task.get('weather_summary'):
+                    st.markdown(f"**🌦️ Conditions:** {task['weather_summary']}")
+                
+                st.markdown("**Exposure Presets:**")
+                for preset in task.get("exposure_presets", []):
+                    st.markdown(f"- {preset}")
+                
+                st.markdown("**Steps:**")
+                for j, step in enumerate(task.get("steps", []), 1):
+                    st.markdown(f"{j}. {step}")
+                
+                st.markdown("**Composition Prompts:**")
+                for prompt in task.get("composition_prompts", []):
+                    st.markdown(f"- {prompt}")
+                
+                st.markdown("**Success Criteria:**")
+                for criterion in task.get("success_criteria", []):
+                    st.markdown(criterion)
