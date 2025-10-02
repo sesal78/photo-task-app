@@ -1,3 +1,34 @@
+import streamlit as st
+import json
+import os
+import random
+from datetime import datetime
+
+# -------------------------------
+# Storage (local JSON)
+# -------------------------------
+HISTORY_FILE = "task_history.json"
+
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        with open(HISTORY_FILE, "r") as f:
+            try:
+                return json.load(f)
+            except:
+                return []
+    return []
+
+def save_task(task):
+    history = load_history()
+    history.append(task)
+    history = history[-7:]  # keep last 7
+    with open(HISTORY_FILE, "w") as f:
+        json.dump(history, f, indent=2)
+    return history
+
+# -------------------------------
+# Simple Photo Task Planner Core
+# -------------------------------
 import random
 from datetime import datetime
 
@@ -169,3 +200,107 @@ class PhotoTaskPlanner:
             task["composition_prompts"] = self.get_composition_prompts(params["photo_type"])
         
         return task
+
+# -------------------------------
+# PWA Manifest + Service Worker injection
+# -------------------------------
+st.markdown("""
+<link rel="manifest" href="/manifest.json">
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/service-worker.js')
+    .then(reg => console.log('SW registered:', reg.scope))
+    .catch(err => console.error('SW failed:', err));
+}
+</script>
+""", unsafe_allow_html=True)
+
+# -------------------------------
+# UI Navigation
+# -------------------------------
+st.set_page_config(page_title="📷 Daily Photo Task", layout="wide")
+page = st.sidebar.radio("📂 Navigate", ["Planner", "History"])
+
+planner = PhotoTaskPlanner()
+
+# -------------------------------
+# Planner Page
+# -------------------------------
+if page == "Planner":
+    st.title("📷 Daily Photography Task Planner")
+
+    photo_type = st.sidebar.text_input("Photography Type", "street")
+    location = st.sidebar.text_input("Location", "neighborhood")
+    camera = st.sidebar.selectbox("Camera", ["Fujifilm X-T5","Ricoh GR IIIx","Nikon FE2","Pentax ME Super"])
+
+    if camera == "Ricoh GR IIIx":
+        lens = "fixed ~40mm"
+    elif camera == "Fujifilm X-T5":
+        lens = st.sidebar.selectbox("Lens", ["35mm F2", "70-300mm"])
+    else:
+        lens = st.sidebar.selectbox("Lens", ["28mm","50mm"])
+
+    time_of_day = st.sidebar.selectbox("Time of Day", ["morning","midday","golden hour","blue hour","night"])
+    duration = st.sidebar.slider("Duration (mins)", 15, 45, 30)
+    lighting = st.sidebar.selectbox("Lighting", ["daylight","shade","mixed","artificial"])
+    weather = st.sidebar.selectbox("Weather", ["clear","cloudy","overcast","rain","fog"]) if "home" not in location.lower() else "indoor"
+    color_mode = st.sidebar.radio("Color Mode", ["Color","Black & White"])
+
+    is_digital = camera in ["Fujifilm X-T5","Ricoh GR IIIx"]
+    film_stock, film_iso = "", ""
+    if not is_digital:
+        film_stock = st.sidebar.text_input("Film Stock", "Portra 400")
+        film_iso = st.sidebar.text_input("Film ISO", "400")
+    constraints = st.sidebar.text_area("Constraints", "Stay local, avoid crowds")
+
+    if st.button("Generate Task 🎯"):
+        params = {
+            "photo_type": photo_type, "location": location,
+            "camera": camera, "lens": lens, "time_of_day": time_of_day,
+            "duration": duration, "lighting": lighting, "weather": weather,
+            "color_mode": color_mode, "is_digital": is_digital,
+            "film_stock": film_stock, "film_iso": film_iso,
+            "constraints": constraints
+        }
+        task = planner.generate_task(params)
+        save_task(task)
+
+        st.subheader(task["title"])
+        st.write(f"**Summary:** {task['summary']}")
+        st.write(f"**When/Where:** {task['when_where']}")
+        st.write(f"**Gear:** {task['gear']}")
+        st.write(f"**Exposure Start:** {task['exposure_start']}")
+
+        st.markdown("### ✅ Steps")
+        for i, step in enumerate(task["steps"], 1):
+            st.markdown(f"{i}. {step}")
+
+        st.markdown("### 🎨 Composition Prompts")
+        for p in task["composition_prompts"]:
+            st.markdown(f"- {p}")
+
+        st.markdown("### 🔄 Contingencies")
+        st.info(task["contingencies"])
+
+        st.markdown("### 🎯 Success Criteria")
+        for c in task["success_criteria"]:
+            st.markdown(f"- {c}")
+
+        st.warning(f"⚠️ {task['safety_note']}")
+
+# -------------------------------
+# History Page
+# -------------------------------
+if page == "History":
+    st.title("📚 Task History (Last 7 Tasks)")
+    history = load_history()
+    if not history:
+        st.info("No tasks saved yet. Generate one to begin!")
+    else:
+        for i, task in enumerate(reversed(history), 1):
+            with st.expander(f"{i}. {task['date']} – {task['title']}"):
+                st.write(f"**Summary:** {task['summary']}")
+                st.write(f"**When/Where:** {task['when_where']}")
+                st.write(f"**Gear:** {task['gear']}")
+                st.write("### Steps")
+                st.write("\n".join([f"{j+1}. {s}" for j,s in enumerate(task["steps"])]))
