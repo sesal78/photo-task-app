@@ -1385,8 +1385,15 @@ if page == "Planner":
 if page == "History":
     st.title("📚 Task History")
     st.markdown("*Your last 7 photography tasks*")
-    
+
     history = load_history()
-    
+
     if not history:
-        st.info("📭 No tasks saved yet
+        st.info("📭 No tasks saved yet")
+    else:
+        for t in reversed(history):
+            st.subheader(f"📋 {t['title']}")
+            st.caption(f"{t['summary']}")
+            st.markdown(f"**⏰ When/Where:** {t['when_where']}")
+            st.markdown(f"**📷 Gear:** {t['gear']}")
+            st.markdown("---")
