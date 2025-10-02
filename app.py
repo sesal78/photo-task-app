@@ -1088,19 +1088,19 @@ class PhotoTaskPlanner:
 
     def generate_task(self, params, history):
         """Generate enriched task with walkable multi-POI itinerary + location-aware checklists"""
-        
+
         geo = geocode_location(params["location"])
         selected_pois, weather_summary = [], ""
-        
+
         if geo:
             with st.spinner(f"🔍 Finding nearby POIs and building route... (via {geo.get('source','API')})"):
                 pois = fetch_pois(geo["lat"], geo["lon"], radius_m=800)
                 weather_summary = get_weather(geo["lat"], geo["lon"])
-                
+
                 # Avoid repeating same POIs today
-                used_ids_today = {t.get("poi_id") for t in history if t.get("date","").startswith(datetime.now().strftime("%Y-%m-%d"))}
+                used_ids_today = {t.get("poi_id") for t in history if t.get("date", "").startswith(datetime.now().strftime("%Y-%m-%d"))}
                 available_pois = [p for p in pois if p["id"] not in used_ids_today and p.get("name")]
-                
+
                 # Duration-based POI count
                 if params["duration"] <= 30:
                     max_pois = 1
@@ -1108,8 +1108,8 @@ class PhotoTaskPlanner:
                     max_pois = 2
                 else:
                     max_pois = 3
-                
-                # Build walkable route using nearest-neighbor
+
+                # Build walkable route
                 selected_pois = build_walkable_route(available_pois, geo["lat"], geo["lon"], max_pois)
 
         # Base steps scale with duration
@@ -1127,66 +1127,62 @@ class PhotoTaskPlanner:
         if params["duration"] > 240:
             base_steps.append("🎬 Attempt a mini-project: 12 images that together narrate the atmosphere")
 
-        # Build POI-specific walkable itinerary steps
-        poi_steps = []
-        poi_prompts = []
-        
+        # Build POI-specific steps
+        poi_steps, poi_prompts = [], []
         if selected_pois:
             poi_steps.append(f"🗺️ **Walkable Route ({len(selected_pois)} stops):**")
             for i, poi in enumerate(selected_pois, 1):
                 poi_name = poi.get('name', '(Unnamed)')
                 category = self.classify_poi_category(poi["tags"])
                 steps_for_poi, prompts_for_poi = self.poi_task_templates(poi_name, category, params["time_of_day"], weather_summary)
-                
-                # Calculate distance from previous POI
+
                 if i == 1:
                     dist_m = haversine_distance(geo["lat"], geo["lon"], poi["lat"], poi["lon"])
                     poi_steps.append(f"**Stop {i}: {poi_name}** (~{int(dist_m)}m from start)")
                 else:
-                    prev_poi = selected_pois[i-2]
-                    dist_m = haversine_distance(prev_poi["lat"], prev_poi["lon"], poi["lat"], poi["lon"])
+                    prev = selected_pois[i - 2]
+                    dist_m = haversine_distance(prev["lat"], prev["lon"], poi["lat"], poi["lon"])
                     poi_steps.append(f"**Stop {i}: {poi_name}** (~{int(dist_m)}m walk)")
-                
-                # Add location-specific tasks
+
                 poi_steps.extend([f"  • {s}" for s in steps_for_poi[:4]])
                 poi_prompts.extend(prompts_for_poi)
-            
-            poi_steps.append("")  # spacing before base steps
-        
-        # Fallback: use static location guides if no POIs
-        if not selected_pois:
+            poi_steps.append("")
+        else:
+            # fallback location guide
             loc_data = self.analyze_location(params["location"])
             if loc_data.get("specific_steps"):
                 poi_steps.append("📍 **Location-specific tasks:**")
-                poi_steps.extend([f"  • {s}" for s in loc_data.get("specific_steps", [])[:5]])
+                poi_steps.extend([f"  • {s}" for s in loc_data["specific_steps"][:5]])
                 poi_steps.append("")
 
-        # Merge final step list
+        # Combine all steps
         steps = poi_steps + base_steps
-        # If 2 lenses are selected, attach lens suggestions to each step
+
+        # 🔧 Lens-suggestion logic if 2 lenses
         if len(params["lenses"]) == 2:
             lens_suggestions = []
-            wide_lens = min(params["lenses"], key=lambda l: 50 if "70" in l else 35)  # assume "35mm" is wide
-            tele_lens = max(params["lenses"], key=lambda l: 50 if "70" in l else 35)  # assume "70-300mm" is tele
-    
-           for step in steps:
-               if any(kw in step.lower() for kw in ["wide", "scout", "environment", "story", "series", "establishing"]):
-                  lens_suggestions.append(f"{step} 📷 Use {wide_lens}")
-              elif any(kw in step.lower() for kw in ["detail", "texture", "compression", "tele", "isolate", "long"]):
-                  lens_suggestions.append(f"{step} 📷 Use {tele_lens}")
-              else:
-                  # Alternate lenses randomly
-                  chosen = random.choice([wide_lens, tele_lens])
-                  lens_suggestions.append(f"{step} 📷 Try with {chosen}")
-    
-           steps = lens_suggestions
+            # assume "wide" is any lens <= 50mm, "tele" otherwise
+            wide_lens = min(params["lenses"], key=lambda l: 200 if "70" in l else 35)
+            tele_lens = max(params["lenses"], key=lambda l: 200 if "70" in l else 35)
 
-        exposures = self.generate_exposures(params["is_digital"], params.get("film_iso","400"), params["time_of_day"])
+            for step in steps:
+                s_lower = step.lower()
+                if any(kw in s_lower for kw in ["wide", "scout", "environment", "establishing", "series", "story"]):
+                    lens_suggestions.append(f"{step} 📷 Use {wide_lens}")
+                elif any(kw in s_lower for kw in ["detail", "texture", "compression", "tele", "isolate", "long"]):
+                    lens_suggestions.append(f"{step} 📷 Use {tele_lens}")
+                else:
+                    chosen = random.choice([wide_lens, tele_lens])
+                    lens_suggestions.append(f"{step} 📷 Try with {chosen}")
+            steps = lens_suggestions
+
+        # exposures, prompts
+        exposures = self.generate_exposures(params["is_digital"], params.get("film_iso", "400"), params["time_of_day"])
         comp_prompts = self.get_composition_prompts(params["photo_type"])
         if poi_prompts:
             comp_prompts = list(set(comp_prompts + poi_prompts))[:7]
 
-        gear = f"{params['camera']} + {params['lens']} ({params['color_mode']})"
+        gear = f"{params['camera']} + {', '.join(params['lenses'])} ({params['color_mode']})"
         if params['is_digital']:
             gear += "; RAW+JPEG recommended"
         else:
@@ -1211,7 +1207,7 @@ class PhotoTaskPlanner:
             "photo_type": params["photo_type"],
             "camera": params["camera"],
             "lenses": params["lenses"],
-            "gear": f"{params['camera']} + {', '.join(params['lenses'])} ({params['color_mode']})",
+            "gear": gear,
             "lens_rationale": " | ".join([self.lens_rationale.get(l, "General-purpose lens") for l in params["lenses"]]),
             "exposure_presets": exposures,
             "steps": steps,
@@ -1276,19 +1272,19 @@ if page == "Planner":
     camera = st.sidebar.selectbox("📷 Camera", ["Fujifilm X-T5", "Ricoh GR IIIx", "Nikon FE2", "Pentax ME Super"])
 
     if camera == "Ricoh GR IIIx":
-    lenses = ["fixed ~40mm"]
-elif camera == "Fujifilm X-T5":
-    lenses = st.sidebar.multiselect(
-        "🔍 Lens (select one or both)", 
-        ["35mm F2", "70-300mm"], 
-        default=["35mm F2"]
-    )
-else:
-    lenses = st.sidebar.multiselect(
-        "🔍 Lens (select one)", 
-        ["28mm", "50mm"], 
-        default=["28mm"]
-    )
+        lenses = ["fixed ~40mm"]
+    elif camera == "Fujifilm X-T5":
+        lenses = st.sidebar.multiselect(
+            "🔍 Lens (select one or both)", 
+            ["35mm F2", "70-300mm"], 
+            default=["35mm F2"]
+        )
+    else:
+        lenses = st.sidebar.multiselect(
+            "🔍 Lens (select one or both)", 
+            ["28mm", "50mm"], 
+            default=["28mm"]
+        )
 
     time_of_day = st.sidebar.selectbox("🕐 Time of Day", ["morning", "midday", "golden hour", "blue hour", "night"])
     duration = st.sidebar.slider("⏱️ Duration (mins)", 15, 360, 30)
@@ -1380,45 +1376,4 @@ else:
         if task.get('weather_summary'):
             st.info(f"**🌦️ Current conditions:** {task['weather_summary']}")
         
-        st.info(f"**🔍 Why this lens?** {task['lens_rationale']}")
-
-        st.markdown("### ⚙️ Exposure Presets")
-        for preset in task["exposure_presets"]:
-            st.markdown(f"- {preset}")
-
-        st.markdown("### ✅ Step-by-Step Walkable Itinerary")
-        for step in task["steps"]:
-            st.markdown(step)
-
-        st.markdown("### 🎨 Composition Prompts")
-        for p in task["composition_prompts"]:
-            st.markdown(f"- {p}")
-
-        st.markdown("### 🔄 Contingencies")
-        st.warning(task["contingencies"])
-
-        st.markdown("### 🎯 Success Criteria")
-        for c in task["success_criteria"]:
-            st.markdown(c)
-
-        st.markdown("### ⚠️ Safety & Respect")
-        st.error(task['safety_note'])
-
-# -------------------------------
-# History Page
-# -------------------------------
-if page == "History":
-    st.title("📚 Task History")
-    st.markdown("*Your last 7 photography tasks*")
-
-    history = load_history()
-
-    if not history:
-        st.info("📭 No tasks saved yet")
-    else:
-        for t in reversed(history):
-            st.subheader(f"📋 {t['title']}")
-            st.caption(f"{t['summary']}")
-            st.markdown(f"**⏰ When/Where:** {t['when_where']}")
-            st.markdown(f"**📷 Gear:** {t['gear']}")
-            st.markdown("---")
+        st.info(f"**🔍
