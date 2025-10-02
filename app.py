@@ -1163,6 +1163,22 @@ class PhotoTaskPlanner:
 
         # Merge final step list
         steps = poi_steps + base_steps
+        # If 2 lenses are selected, attach lens suggestions to each step
+lens_suggestions = []
+if len(params["lenses"]) == 2:
+    wide_lens = min(params["lenses"], key=lambda l: 50 if "70" in l else 35)  # pick wide/normal
+    tele_lens = max(params["lenses"], key=lambda l: 50 if "70" in l else 35)  # pick tele
+    
+    for step in steps:
+        if any(kw in step.lower() for kw in ["wide", "scout", "environment", "story", "series", "establishing"]):
+            lens_suggestions.append(f"{step} 📷 Use {wide_lens}")
+        elif any(kw in step.lower() for kw in ["detail", "texture", "compression", "tele", "isolate", "long"]):
+            lens_suggestions.append(f"{step} 📷 Use {tele_lens}")
+        else:
+            # Randomly alternate
+            chosen = random.choice([wide_lens, tele_lens])
+            lens_suggestions.append(f"{step} 📷 Try with {chosen}")
+    steps = lens_suggestions
 
         exposures = self.generate_exposures(params["is_digital"], params.get("film_iso","400"), params["time_of_day"])
         comp_prompts = self.get_composition_prompts(params["photo_type"])
@@ -1193,9 +1209,9 @@ class PhotoTaskPlanner:
             "when_where": f"{params['time_of_day'].title()} ({params['duration']} min) | {params['location']}",
             "photo_type": params["photo_type"],
             "camera": params["camera"],
-            "lens": params["lens"],
-            "gear": gear,
-            "lens_rationale": self.lens_rationale.get(params["lens"], "General-purpose lens"),
+            "lenses": params["lenses"],
+            "gear": f"{params['camera']} + {', '.join(params['lenses'])} ({params['color_mode']})",
+            "lens_rationale": " | ".join([self.lens_rationale.get(l, "General-purpose lens") for l in params["lenses"]]),
             "exposure_presets": exposures,
             "steps": steps,
             "composition_prompts": comp_prompts,
@@ -1259,11 +1275,19 @@ if page == "Planner":
     camera = st.sidebar.selectbox("📷 Camera", ["Fujifilm X-T5", "Ricoh GR IIIx", "Nikon FE2", "Pentax ME Super"])
 
     if camera == "Ricoh GR IIIx":
-        lens = "fixed ~40mm"
-    elif camera == "Fujifilm X-T5":
-        lens = st.sidebar.selectbox("🔍 Lens", ["35mm F2", "70-300mm"])
-    else:
-        lens = st.sidebar.selectbox("🔍 Lens", ["28mm", "50mm"])
+    lenses = ["fixed ~40mm"]
+elif camera == "Fujifilm X-T5":
+    lenses = st.sidebar.multiselect(
+        "🔍 Lens (select one or both)", 
+        ["35mm F2", "70-300mm"], 
+        default=["35mm F2"]
+    )
+else:
+    lenses = st.sidebar.multiselect(
+        "🔍 Lens (select one)", 
+        ["28mm", "50mm"], 
+        default=["28mm"]
+    )
 
     time_of_day = st.sidebar.selectbox("🕐 Time of Day", ["morning", "midday", "golden hour", "blue hour", "night"])
     duration = st.sidebar.slider("⏱️ Duration (mins)", 15, 360, 30)
@@ -1320,7 +1344,7 @@ if page == "Planner":
             "photo_type": photo_type,
             "location": location,
             "camera": camera,
-            "lens": lens,
+            "lenses": lenses,
             "time_of_day": time_of_day,
             "duration": duration,
             "lighting": lighting,
