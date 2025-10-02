@@ -738,9 +738,41 @@ class PhotoTaskPlanner:
     def generate_task(self, params, history):
         """Generate complete enriched task with worldwide location support"""
         loc_data = self.analyze_location(params["location"])
+        # Base steps (shortest session)
+        base_steps = [
+            "Scout area for 5–10 minutes",
+            "Shoot 1 wide establishing shot",
+            "Capture 3 strong details/textures",
+            "Find 2 human/motion moments",
+            "Experiment with 2 unusual angles"
+        ]
+
+        # Scale checklist length by duration
+        if params["duration"] > 60:
+            base_steps += [
+                "Create 1 storytelling sequence of 3–5 frames",
+                "Look for reflections and abstract compositions"
+            ]
+        if params["duration"] > 120:
+            base_steps += [
+                "Photograph a subject from 3 different perspectives (near/mid/far)",
+                "Dedicate 15 mins to a single scene, working multiple variations"
+            ]
+        if params["duration"] > 240:
+            base_steps += [
+                "Focus on a thematic series (shadows, reflections, gestures, etc.)",
+                "Build a mini-project: 12 images that could tell a story together",
+                "Review work mid-session and adjust approach"
+            ]
+
+        # Combine with location-specific steps if any
         steps = loc_data.get("specific_steps", [])[:]
-        
-        # Add suggested spots if available
+        if steps:
+            steps = steps[:min(5, len(steps))] + base_steps
+        else:
+            steps = base_steps
+
+        # Add suggested spots to the very beginning (if available)
         if loc_data.get("suggested_spots"):
             spots_text = "📍 Suggested spots: " + ", ".join(loc_data["suggested_spots"][:3])
             steps.insert(0, spots_text)
@@ -843,7 +875,7 @@ if page == "Planner":
         lens = st.sidebar.selectbox("🔍 Lens", ["28mm", "50mm"])
 
     time_of_day = st.sidebar.selectbox("🕐 Time of Day", ["morning", "midday", "golden hour", "blue hour", "night"])
-    duration = st.sidebar.slider("⏱️ Duration (mins)", 15, 90, 30)
+    duration = st.sidebar.slider("⏱️ Duration (mins)", 15, 360, 30)
     lighting = st.sidebar.selectbox("💡 Lighting", ["daylight", "shade", "mixed", "artificial"])
     
     if "home" not in location.lower() and "indoor" not in location.lower():
