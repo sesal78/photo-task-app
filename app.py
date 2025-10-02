@@ -2,6 +2,7 @@ import streamlit as st
 import json
 import os
 import random
+import requests
 from datetime import datetime
 
 # -------------------------------
@@ -25,6 +26,187 @@ def save_task(task):
     with open(HISTORY_FILE, "w") as f:
         json.dump(history, f, indent=2)
     return history
+
+# -------------------------------
+# Location Intelligence APIs (Google → OSM fallback)
+# -------------------------------
+@st.cache_data(ttl=86400)
+def geocode_location(query):
+    """Geocode location using Google Maps → fallback to OpenStreetMap"""
+    # Try Google Maps Geocoding API first
+    try:
+        if "GOOGLE_MAPS_KEY" in st.secrets:
+            url = "https://maps.googleapis.com/maps/api/geocode/json"
+            params = {"address": query, "key": st.secrets["GOOGLE_MAPS_KEY"]}
+            r = requests.get(url, params=params, timeout=10)
+            r.raise_for_status()
+            data = r.json()
+            if data.get("status") == "OK":
+                loc = data["results"][0]["geometry"]["location"]
+                return {
+                    "lat": loc["lat"],
+                    "lon": loc["lng"],
+                    "display_name": data["results"][0]["formatted_address"],
+                    "source": "Google Maps"
+                }
+    except Exception as e:
+        st.warning(f"⚠️ Google Geocoding failed, using OpenStreetMap fallback: {e}")
+
+    # Fallback to OpenStreetMap Nominatim
+    try:
+        url = "https://nominatim.openstreetmap.org/search"
+        params = {"q": query, "format": "json", "limit": 1}
+        r = requests.get(url, params=params, headers={"User-Agent": "PhotoTaskApp/1.0"}, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        if data:
+            return {
+                "lat": float(data[0]["lat"]),
+                "lon": float(data[0]["lon"]),
+                "display_name": data[0]["display_name"],
+                "source": "OpenStreetMap"
+            }
+    except Exception as e:
+        st.warning(f"⚠️ Geocoding failed completely: {e}")
+    
+    return None
+
+@st.cache_data(ttl=3600)
+def fetch_pois_overpass(lat, lon, radius_m=800):
+    """Fetch nearby points of interest using Overpass API (OSM fallback)"""
+    try:
+        query = f"""
+        [out:json][timeout:25];
+        (
+          node(around:{radius_m},{lat},{lon})["tourism"~"attraction|viewpoint|museum|artwork"];
+          node(around:{radius_m},{lat},{lon})["amenity"~"marketplace|cafe|bar|restaurant|place_of_worship|theatre|library"];
+          node(around:{radius_m},{lat},{lon})["leisure"~"park|garden|marina"];
+          node(around:{radius_m},{lat},{lon})["shop"~"mall|department_store|supermarket"];
+          node(around:{radius_m},{lat},{lon})["natural"~"beach|cliff|coastline|wetland"];
+          node(around:{radius_m},{lat},{lon})["man_made"~"bridge|pier|lighthouse"];
+          way(around:{radius_m},{lat},{lon})["tourism"~"attraction|viewpoint|museum|artwork"];
+          way(around:{radius_m},{lat},{lon})["leisure"~"park|garden|marina"];
+          way(around:{radius_m},{lat},{lon})["natural"~"beach|cliff|coastline|wetland"];
+          way(around:{radius_m},{lat},{lon})["man_made"~"bridge|pier|lighthouse"];
+        );
+        out center 60;
+        """
+        r = requests.post("https://overpass-api.de/api/interpreter", data=query, 
+                         headers={"User-Agent": "PhotoTaskApp/1.0"}, timeout=30)
+        r.raise_for_status()
+        data = r.json().get("elements", [])
+        pois = []
+        for e in data:
+            tags = e.get("tags", {})
+            name = tags.get("name") or tags.get("ref") or ""
+            lat_e = e.get("lat") or (e.get("center") or {}).get("lat")
+            lon_e = e.get("lon") or (e.get("center") or {}).get("lon")
+            if lat_e and lon_e:
+                pois.append({
+                    "id": f"{e.get('type','n')}/{e.get('id')}",
+                    "name": name,
+                    "lat": lat_e,
+                    "lon": lon_e,
+                    "tags": tags
+                })
+        # Prefer named POIs
+        pois.sort(key=lambda p: (0 if p["name"] else 1, p["id"]))
+        return pois[:40]
+    except Exception as e:
+        st.warning(f"⚠️ Overpass API failed: {e}")
+        return []
+
+@st.cache_data(ttl=3600)
+def fetch_pois(lat, lon, radius_m=800):
+    """Fetch nearby POIs using Google Places → fallback to Overpass"""
+    # Try Google Places API first
+    try:
+        if "GOOGLE_MAPS_KEY" in st.secrets:
+            url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+            params = {
+                "location": f"{lat},{lon}",
+                "radius": radius_m,
+                "key": st.secrets["GOOGLE_MAPS_KEY"]
+            }
+            r = requests.get(url, params=params, timeout=10)
+            r.raise_for_status()
+            data = r.json()
+            if data.get("status") == "OK":
+                pois = []
+                for place in data["results"][:40]:
+                    pois.append({
+                        "id": place["place_id"],
+                        "name": place.get("name", ""),
+                        "lat": place["geometry"]["location"]["lat"],
+                        "lon": place["geometry"]["location"]["lng"],
+                        "tags": {"type": "google_place", "types": place.get("types", [])},
+                        "source": "Google Places"
+                    })
+                return pois
+    except Exception as e:
+        st.warning(f"⚠️ Google Places failed, using Overpass fallback: {e}")
+
+    # Fallback to Overpass (OSM)
+    return fetch_pois_overpass(lat, lon, radius_m)
+
+@st.cache_data(ttl=3600)
+def get_sun_times(lat, lon, date_str=None):
+    """Get sunrise/sunset times"""
+    try:
+        params = {"lat": lat, "lng": lon, "formatted": 0}
+        if date_str:
+            params["date"] = date_str
+        r = requests.get("https://api.sunrise-sunset.org/json", params=params, timeout=10)
+        r.raise_for_status()
+        return r.json().get("results", {})
+    except Exception as e:
+        return {}
+
+@st.cache_data(ttl=900)
+def get_weather_open_meteo(lat, lon):
+    """Get current weather using Open-Meteo (free, no key) - fallback"""
+    try:
+        url = "https://api.open-meteo.com/v1/forecast"
+        params = {
+            "latitude": lat, "longitude": lon,
+            "current_weather": True,
+            "hourly": "cloudcover,precipitation,visibility"
+        }
+        r = requests.get(url, params=params, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {}
+
+@st.cache_data(ttl=900)
+def get_weather(lat, lon):
+    """Fetch current weather via OpenWeather → fallback to Open-Meteo"""
+    # Try OpenWeatherMap first
+    try:
+        if "OPENWEATHER_KEY" in st.secrets:
+            url = "https://api.openweathermap.org/data/2.5/weather"
+            params = {
+                "lat": lat, 
+                "lon": lon, 
+                "appid": st.secrets["OPENWEATHER_KEY"], 
+                "units": "metric"
+            }
+            r = requests.get(url, params=params, timeout=10)
+            r.raise_for_status()
+            data = r.json()
+            main = data.get("main", {})
+            wind = data.get("wind", {})
+            weather_desc = data.get("weather", [{}])[0].get("description", "")
+            return f"{main.get('temp','?')}°C | {weather_desc} | {main.get('humidity','?')}% humidity | wind {wind.get('speed','?')}m/s"
+    except Exception as e:
+        st.warning(f"⚠️ OpenWeather failed, using Open-Meteo fallback: {e}")
+
+    # Fallback to Open-Meteo
+    fallback = get_weather_open_meteo(lat, lon)
+    if fallback.get("current_weather"):
+        w = fallback["current_weather"]
+        return f"{w.get('temperature','?')}°C | wind {w.get('windspeed','?')}km/h"
+    return ""
 
 # -------------------------------
 # Enhanced Photo Task Planner Core
@@ -531,14 +713,141 @@ class PhotoTaskPlanner:
         return {
             "genres": ["documentary", "environmental"],
             "suggested_spots": [],
-            "specific_steps": [
-                f"Scout {location} for 5-10 minutes to identify unique features",
-                "Capture 1 wide establishing shot showing the location context",
-                "Find 3 detail shots that tell the story of this place",
-                "Look for candid human activity or interactions",
-                "Shoot from multiple perspectives (eye level, low, high)"
-            ]
+            "specific_steps": []
         }
+    
+    # 🏷️ POI Classification
+    def classify_poi_category(self, tags):
+        """Classify POI into photography-relevant category"""
+        # Handle Google Places types
+        if tags.get("type") == "google_place":
+            types = tags.get("types", [])
+            types_str = " ".join(types).lower()
+            
+            if any(x in types_str for x in ["park", "garden"]):
+                return "park"
+            if any(x in types_str for x in ["museum", "art_gallery"]):
+                return "museum_art"
+            if any(x in types_str for x in ["shopping_mall", "department_store"]):
+                return "mall"
+            if any(x in types_str for x in ["restaurant", "cafe", "bar"]):
+                return "hospitality"
+            if any(x in types_str for x in ["tourist_attraction", "point_of_interest"]):
+                return "viewpoint"
+            if any(x in types_str for x in ["beach", "natural_feature"]):
+                return "coast"
+            if any(x in types_str for x in ["bridge"]):
+                return "bridge_pier"
+            return "general"
+        
+        # Handle OSM tags
+        t = tags.get("tourism","") + " " + tags.get("amenity","") + " " + tags.get("leisure","") + " " + tags.get("natural","") + " " + tags.get("man_made","") + " " + tags.get("shop","")
+        t = t.lower()
+        if "viewpoint" in t: return "viewpoint"
+        if "museum" in t or "artwork" in t: return "museum_art"
+        if "market" in t or "marketplace" in t: return "market"
+        if "park" in t or "garden" in t: return "park"
+        if "beach" in t or "coast" in t or "marina" in t: return "coast"
+        if "bridge" in t or "pier" in t: return "bridge_pier"
+        if "mall" in t or "department_store" in t: return "mall"
+        if "cafe" in t or "restaurant" in t or "bar" in t: return "hospitality"
+        return "general"
+
+    def poi_task_templates(self, category, time_of_day, weather_summary):
+        """Return steps and composition prompts tailored to POI category"""
+        common = {
+            "viewpoint": (
+                [
+                    "From the viewpoint, shoot 3 layered city/landscape frames with clear foreground",
+                    "Use a longer focal length to compress the skyline; look for repeating patterns",
+                    "Wait for a person entering frame to add scale",
+                    "If windy, stabilize and try 1/10–1/30s motion blur of traffic/people"
+                ],
+                ["Layered depth", "Leading lines to horizon", "Human scale against vast scene", "Golden/blue hour glow"]
+            ),
+            "museum_art": (
+                [
+                    "Focus on symmetry and clean lines in exhibits and halls",
+                    "Capture visitors interacting with exhibits (no flash)",
+                    "Isolate textures and materials with tight framing",
+                    "Use reflections in glass cases for layered abstracts"
+                ],
+                ["Symmetry", "Negative space", "Reflections", "Texture isolation"]
+            ),
+            "market": (
+                [
+                    "Capture buyer/seller gestures and exchanges",
+                    "Shoot color pops of produce or textiles",
+                    "Low angle through hanging items for depth",
+                    "Wide environmental + tight detail pairs"
+                ],
+                ["Gesture/decisive moment", "Color blocking", "Frame within frame", "Leading lines through aisles"]
+            ),
+            "park": (
+                [
+                    "Use tree branches for natural framing",
+                    "Macro details of leaves, bark, and textures",
+                    "Silhouettes of runners/walkers at golden hour",
+                    "Telephoto compression of layers of foliage"
+                ],
+                ["Natural frames", "Patterns in nature", "Silhouettes", "Foreground interest"]
+            ),
+            "coast": (
+                [
+                    "Experiment with shutter speeds for wave motion",
+                    "Reflections in wet sand or puddles",
+                    "Silhouettes against sunset/sunrise",
+                    "Pier/marina structures as strong leading lines"
+                ],
+                ["Motion blur", "Reflections", "Minimalism", "Leading lines"]
+            ),
+            "bridge_pier": (
+                [
+                    "Centerline symmetry on the bridge/pier",
+                    "Shoot from below/side for graphic geometry",
+                    "Include passing subjects for scale/motion",
+                    "Long exposure to smooth water if applicable"
+                ],
+                ["Symmetry", "Geometric patterns", "Scale with human element", "Long exposure water"]
+            ),
+            "mall": (
+                [
+                    "Architectural patterns and escalator geometry",
+                    "Reflections in storefront glass",
+                    "Candid shopper interactions",
+                    "Top-down or low-angle abstracts"
+                ],
+                ["Repetition", "Reflections", "Leading lines", "Frame within frame"]
+            ),
+            "hospitality": (
+                [
+                    "Window light portraits (ask permission)",
+                    "Detail shots of cups/plates with texture",
+                    "Ambient scene with layered foreground",
+                    "Reflections through window glass"
+                ],
+                ["Window light", "Texture details", "Layering", "Reflections"]
+            ),
+            "general": (
+                [
+                    "Scout and find the most distinctive visual elements",
+                    "Shoot 1 wide, 3 medium, 3 tight frames for a mini-story",
+                    "Look for symmetry, reflections, or bold shadows",
+                    "Include at least 1 human element for scale/story"
+                ],
+                ["Wide–medium–tight sequencing", "Reflections", "Symmetry", "Human scale"]
+            )
+        }
+        steps, prompts = common.get(category, common["general"])
+        
+        # Condition-aware tweaks
+        if "rain" in weather_summary.lower() or "precipitation" in weather_summary.lower():
+            steps = ["Use shelter and focus on reflections and umbrellas", "Shoot through glass for layered rainy scenes"] + steps
+            prompts = list(set(prompts + ["Rain reflections", "Through-glass layering"]))
+        if time_of_day in ["golden hour", "blue hour"]:
+            prompts = list(set(prompts + ["Golden/blue hour color contrast"]))
+        
+        return steps, prompts
     
     # Generate exposure presets
     def generate_exposures(self, is_digital=True, film_iso="400", time_of_day=""):
@@ -656,47 +965,58 @@ class PhotoTaskPlanner:
             return "⚠️ Be respectful of people and property; ask permission when photographing private spaces"
 
     def generate_success_criteria(self, params):
-        """Generate measurable success criteria"""
+        """Generate measurable success criteria scaled by duration"""
         photo_type = params['photo_type'].lower()
+        duration = params['duration']
+        
+        # Base keeper count scales with duration
+        if duration <= 60:
+            keeper_count = "10+"
+        elif duration <= 120:
+            keeper_count = "15+"
+        elif duration <= 240:
+            keeper_count = "25+"
+        else:
+            keeper_count = "40+"
         
         criteria_map = {
             "street": [
                 "✓ 1 decisive moment with clear gesture/action",
                 "✓ 1 layered frame with 3+ depth planes",
                 "✓ 1 reflection or strong shadow composition",
-                "✓ 15+ keeper frames total"
+                f"✓ {keeper_count} keeper frames total"
             ],
             "portrait": [
                 "✓ Sharp focus on eyes in at least 3 frames",
                 "✓ 1 frame with clean background separation",
                 "✓ Natural expression captured (not forced)",
                 "✓ Catchlights visible in eyes",
-                "✓ 10+ keepers with good light"
+                f"✓ {keeper_count} keepers with good light"
             ],
             "cityscape": [
                 "✓ 1 wide establishing shot with context",
                 "✓ 1 detail shot isolating pattern/texture",
                 "✓ Straight verticals (no keystoning)",
                 "✓ 1 frame with human scale reference",
-                "✓ 12+ keeper frames"
+                f"✓ {keeper_count} keeper frames"
             ],
             "architecture": [
                 "✓ Strong leading lines in at least 2 frames",
                 "✓ 1 symmetrical composition",
                 "✓ Detail and context shots both captured",
-                "✓ 10+ keepers"
+                f"✓ {keeper_count} keepers"
             ],
             "wildlife": [
                 "✓ Sharp focus on animal eyes in 3+ frames",
                 "✓ 1 behavior/action shot",
                 "✓ 1 environmental context shot",
-                "✓ 8+ keeper frames"
+                f"✓ {keeper_count} keeper frames"
             ],
             "landscape": [
                 "✓ Foreground, midground, background in 2+ frames",
                 "✓ 1 frame with dramatic sky",
                 "✓ Sharp focus throughout (use smaller aperture)",
-                "✓ 10+ keeper frames"
+                f"✓ {keeper_count} keeper frames"
             ]
         }
         
@@ -709,7 +1029,7 @@ class PhotoTaskPlanner:
             "✓ 3+ strong compositions following prompts",
             "✓ Consistent exposure across series",
             "✓ At least 1 frame exceeding expectations",
-            "✓ 10+ keeper frames"
+            f"✓ {keeper_count} keeper frames"
         ]
 
     def generate_contingencies(self, params):
@@ -736,9 +1056,54 @@ class PhotoTaskPlanner:
         return " | ".join(contingencies)
 
     def generate_task(self, params, history):
-        """Generate complete enriched task with worldwide location support"""
+        """Generate complete enriched task with worldwide location support + POI intelligence"""
+        
+        # 🌍 Try to geocode and fetch POIs
+        geo = geocode_location(params["location"])
+        poi = None
+        poi_steps = []
+        poi_prompts = []
+        weather_summary = ""
+        
+        if geo:
+            with st.spinner(f"🔍 Finding nearby points of interest... (via {geo.get('source', 'API')})"):
+                pois = fetch_pois(geo["lat"], geo["lon"], radius_m=800)
+                
+                # Get weather
+                weather_summary = get_weather(geo["lat"], geo["lon"])
+                
+                # Avoid repeating same POI same day
+                used_poi_ids_today = set()
+                today_str = datetime.now().strftime("%Y-%m-%d")
+                for t in history:
+                    if t.get("date","").startswith(today_str) and t.get("poi_id"):
+                        used_poi_ids_today.add(t["poi_id"])
+                
+                # Choose first unused named POI
+                candidate = None
+                for p in pois:
+                    if p["id"] in used_poi_ids_today:
+                        continue
+                    if p["name"]:
+                        candidate = p
+                        break
+                
+                # Fallback to any unused
+                if not candidate and pois:
+                    for p in pois:
+                        if p["id"] not in used_poi_ids_today:
+                            candidate = p
+                            break
+                
+                if candidate:
+                    category = self.classify_poi_category(candidate["tags"])
+                    poi_steps, poi_prompts = self.poi_task_templates(category, params["time_of_day"], weather_summary)
+                    poi = candidate
+        
+        # Fallback to static location guides
         loc_data = self.analyze_location(params["location"])
-        # Base steps (shortest session)
+        
+        # Duration-scaled base steps
         base_steps = [
             "Scout area for 5–10 minutes",
             "Shoot 1 wide establishing shot",
@@ -765,14 +1130,20 @@ class PhotoTaskPlanner:
                 "Review work mid-session and adjust approach"
             ]
 
-        # Combine with location-specific steps if any
-        steps = loc_data.get("specific_steps", [])[:]
-        if steps:
-            steps = steps[:min(5, len(steps))] + base_steps
+        # Combine POI-specific + location-specific + base steps
+        steps_loc_specific = poi_steps if poi_steps else loc_data.get("specific_steps", [])[:]
+        if steps_loc_specific:
+            steps = steps_loc_specific[:min(5, len(steps_loc_specific))] + base_steps
         else:
             steps = base_steps
 
-        # Add suggested spots to the very beginning (if available)
+        # Add POI header if present
+        if poi:
+            poi_name = poi.get('name','(Unnamed)')
+            header = f"📍 Focus location: {poi_name}"
+            steps.insert(0, header)
+
+        # Add suggested spots to the very beginning (if available from static guides)
         if loc_data.get("suggested_spots"):
             spots_text = "📍 Suggested spots: " + ", ".join(loc_data["suggested_spots"][:3])
             steps.insert(0, spots_text)
@@ -783,7 +1154,10 @@ class PhotoTaskPlanner:
             params["time_of_day"]
         )
         
+        # Merge POI prompts with type-based prompts
         comp_prompts = self.get_composition_prompts(params["photo_type"])
+        if poi_prompts:
+            comp_prompts = list(set(comp_prompts + poi_prompts))[:7]  # max 7 prompts
 
         # Build gear string
         gear = f"{params['camera']} + {params['lens']}; {params['color_mode']}"
@@ -803,18 +1177,17 @@ class PhotoTaskPlanner:
             "gear": gear,
             "lens_rationale": self.lens_rationale.get(params["lens"], "General-purpose lens for this task"),
             "exposure_presets": exposures,
-            "steps": steps if steps else [
-                "Scout area for 5–10 minutes",
-                "Shoot 1 establishing shot",
-                "Find 3 detail abstracts",
-                "Capture 2 human/motion moments",
-                "Experiment with 2 unusual angles"
-            ],
+            "steps": steps,
             "composition_prompts": comp_prompts,
             "contingencies": self.generate_contingencies(params),
             "success_criteria": self.generate_success_criteria(params),
             "safety_note": self.get_safety_note(params),
-            "color_mode": params['color_mode']
+            "color_mode": params['color_mode'],
+            "poi_id": poi["id"] if poi else "",
+            "poi_name": poi.get("name","") if poi else "",
+            "poi_category": self.classify_poi_category(poi["tags"]) if poi else "",
+            "poi_coords": {"lat": poi["lat"], "lon": poi["lon"]} if poi else None,
+            "weather_summary": weather_summary
         }
 
         # Weekly rotation enforcement
@@ -903,25 +1276,18 @@ if page == "Planner":
                 "Fomapan 400",
                 "Kodak Double-X 250"
             ]
-            default_film = "Ilford HP5 Plus 400"
         else:  # Color
             film_options = [
                 "Kodak Portra 400",
                 "Kodak Portra 160",
                 "Kodak Portra 800",
-                "Fujifilm 400",
-                "Fujifilm 200",
+                "Fujifilm Pro 400H",
                 "Kodak Ektar 100",
                 "Fujifilm Superia 400",
                 "Cinestill 800T",
                 "Kodak Gold 200",
-                "Fujifilm Velvia 50",
-                "Kodak ColourPlus 200",
-                "Kodak Ultramax 400",
-                "CineStill800T 800",
-                "CineStill400D 400"
+                "Fujifilm Velvia 50"
             ]
-            default_film = "Kodak Portra 400"
         
         film_stock = st.sidebar.selectbox("Film Stock", film_options, index=0)
         
@@ -965,6 +1331,12 @@ if page == "Planner":
         with col2:
             st.markdown(f"**📷 Gear:** {task['gear']}")
         
+        if task.get('poi_name'):
+            st.info(f"**📍 Focus POI:** {task['poi_name']} ({task.get('poi_category','')})")
+        
+        if task.get('weather_summary'):
+            st.info(f"**🌦️ Current conditions:** {task['weather_summary']}")
+        
         st.info(f"**🔍 Why this lens?** {task['lens_rationale']}")
 
         st.markdown("### ⚙️ Exposure Presets")
@@ -1005,7 +1377,16 @@ if page == "History":
             with st.expander(f"**{i}.** {task['date']} — {task['title']}", expanded=(i==1)):
                 st.markdown(f"**Summary:** {task['summary']}")
                 st.markdown(f"**When/Where:** {task['when_where']}")
-                st.markdown(f"**Gear:** {task.get('gear', task.get('camera', '') + ' + ' + task.get('lens', ''))}") 
+                
+                # Fixed gear display
+                gear_display = task.get('gear', task.get('camera', '') + ' + ' + task.get('lens', ''))
+                st.markdown(f"**Gear:** {gear_display}")
+                
+                if task.get('poi_name'):
+                    st.markdown(f"**📍 Focus POI:** {task['poi_name']} ({task.get('poi_category','')})")
+                
+                if task.get('weather_summary'):
+                    st.markdown(f"**🌦️ Conditions:** {task['weather_summary']}")
                 
                 st.markdown("**Exposure Presets:**")
                 for preset in task.get("exposure_presets", []):
