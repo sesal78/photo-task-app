@@ -795,7 +795,7 @@ class PhotoTaskPlanner:
         task = {
             "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "title": f"{params['time_of_day'].title()} {params['photo_type'].title()} @ {params['location']}",
-            "summary": f"{params['photo_type']} session in {params['location']} | {params['camera']} + {params['lens']} | {params['duration']} mins",
+            "summary": f"{params['photo_type']} session in {params['location']} | {params['camera']} + {params['lens']} | {params['duration']} mins | Checklist: {len(steps)} steps",
             "when_where": f"{params['time_of_day'].title()} ({params['duration']} min) | {params['location']}",
             "photo_type": params["photo_type"],
             "camera": params["camera"],
