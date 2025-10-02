@@ -320,7 +320,8 @@ if page == "Planner":
             "film_stock": film_stock, "film_iso": film_iso,
             "constraints": constraints
         }
-        task = planner.generate_task(params)
+        history = load_history()
+        task = planner.generate_task(params, history)
         save_task(task)
 
         st.subheader(task["title"])
