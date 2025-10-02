@@ -590,18 +590,27 @@ class PhotoTaskPlanner:
         if not history: 
             return False
         
-        loc_type = (
-            new_task["photo_type"].lower(), 
-            new_task["when_where"].split("|")[-1].strip().lower()
-        )
-        
-        recent = [
-            (t["photo_type"].lower(), 
-             t["when_where"].split("|")[-1].strip().lower()) 
-            for t in history[-window:]
-        ]
-        
-        return loc_type in recent
+        try:
+            loc_type = (
+                new_task.get("photo_type", "").lower(), 
+                new_task.get("when_where", "").split("|")[-1].strip().lower()
+            )
+            
+            recent = []
+            for t in history[-window:]:
+                # Skip tasks missing required keys
+                if not t.get("photo_type") or not t.get("when_where"):
+                    continue
+                
+                recent.append((
+                    t["photo_type"].lower(), 
+                    t["when_where"].split("|")[-1].strip().lower()
+                ))
+            
+            return loc_type in recent
+        except Exception as e:
+            # If any error occurs, just return False (don't block task generation)
+            return False
 
     def generate_variation(self, base_task):
         """Force refresh of steps, exposures, and prompts for variation"""
