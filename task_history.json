@@ -1,0 +1,54 @@
+[
+  {
+    "date": "2025-10-02",
+    "title": "Golden Hour Street at neighborhood",
+    "summary": "Practice Street using Fujifilm X-T5 with 35mm F2 in Color mode.",
+    "when_where": "golden hour for 30 mins | neighborhood",
+    "gear": "Fujifilm X-T5 + 35mm F2; Color; RAW+JPEG",
+    "exposure_start": "f/4, 1/500s, ISO Auto (cap 3200)",
+    "steps": [
+      "Go to neighborhood and observe lighting.",
+      "Find 3-5 subjects",
+      "Shoot from multiple angles",
+      "Review histograms/focus and adjust"
+    ],
+    "composition_prompts": [
+      "rule of thirds",
+      "foreground interest",
+      "symmetry/asymmetry"
+    ],
+    "contingencies": "If weather changes, switch subjects but keep same gear.",
+    "success_criteria": [
+      "1 strong keeper",
+      "Try all prompts",
+      "10+ usable frames"
+    ],
+    "safety_note": "Stay aware of surroundings; respect people & property."
+  },
+  {
+    "date": "2025-10-02",
+    "title": "Morning Street at Melbourne CBD",
+    "summary": "Practice Street using Nikon FE2 with 28mm in Color mode.",
+    "when_where": "morning for 30 mins | Melbourne CBD",
+    "gear": "Nikon FE2 + 28mm; Color; Portra 400 ISO 400",
+    "exposure_start": "Sunny 16 baseline. Start f/8 1/250s @ ISO 400",
+    "steps": [
+      "Go to Melbourne CBD and observe lighting.",
+      "Find 3-5 subjects",
+      "Shoot from multiple angles",
+      "Record exposures, rewind & label film"
+    ],
+    "composition_prompts": [
+      "rule of thirds",
+      "foreground interest",
+      "symmetry/asymmetry"
+    ],
+    "contingencies": "If weather changes, switch subjects but keep same gear.",
+    "success_criteria": [
+      "1 strong keeper",
+      "Try all prompts",
+      "10+ usable frames"
+    ],
+    "safety_note": "Stay aware of surroundings; respect people & property."
+  }
+]
