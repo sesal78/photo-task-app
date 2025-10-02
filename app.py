@@ -1164,21 +1164,22 @@ class PhotoTaskPlanner:
         # Merge final step list
         steps = poi_steps + base_steps
         # If 2 lenses are selected, attach lens suggestions to each step
-lens_suggestions = []
-if len(params["lenses"]) == 2:
-    wide_lens = min(params["lenses"], key=lambda l: 50 if "70" in l else 35)  # pick wide/normal
-    tele_lens = max(params["lenses"], key=lambda l: 50 if "70" in l else 35)  # pick tele
+        if len(params["lenses"]) == 2:
+            lens_suggestions = []
+            wide_lens = min(params["lenses"], key=lambda l: 50 if "70" in l else 35)  # assume "35mm" is wide
+            tele_lens = max(params["lenses"], key=lambda l: 50 if "70" in l else 35)  # assume "70-300mm" is tele
     
-    for step in steps:
-        if any(kw in step.lower() for kw in ["wide", "scout", "environment", "story", "series", "establishing"]):
-            lens_suggestions.append(f"{step} 📷 Use {wide_lens}")
-        elif any(kw in step.lower() for kw in ["detail", "texture", "compression", "tele", "isolate", "long"]):
-            lens_suggestions.append(f"{step} 📷 Use {tele_lens}")
-        else:
-            # Randomly alternate
-            chosen = random.choice([wide_lens, tele_lens])
-            lens_suggestions.append(f"{step} 📷 Try with {chosen}")
-    steps = lens_suggestions
+           for step in steps:
+               if any(kw in step.lower() for kw in ["wide", "scout", "environment", "story", "series", "establishing"]):
+                  lens_suggestions.append(f"{step} 📷 Use {wide_lens}")
+              elif any(kw in step.lower() for kw in ["detail", "texture", "compression", "tele", "isolate", "long"]):
+                  lens_suggestions.append(f"{step} 📷 Use {tele_lens}")
+              else:
+                  # Alternate lenses randomly
+                  chosen = random.choice([wide_lens, tele_lens])
+                  lens_suggestions.append(f"{step} 📷 Try with {chosen}")
+    
+           steps = lens_suggestions
 
         exposures = self.generate_exposures(params["is_digital"], params.get("film_iso","400"), params["time_of_day"])
         comp_prompts = self.get_composition_prompts(params["photo_type"])
