@@ -161,13 +161,71 @@ class PhotoTaskPlanner:
                 return random.sample(self.composition_prompts[key], min(5,len(self.composition_prompts[key])))
         return ["Rule of thirds","Leading lines","Negative space","Foreground interest","Symmetry"]
 
-    # 🚫 Duplicate task prevention
-    def is_duplicate(self, new_task, history):
-        if not history: return False
-        last_task = history[-1]
-        return (new_task["photo_type"] == last_task["photo_type"] 
-                and new_task["when_where"].split("|")[-1].strip().lower() 
-                == last_task["when_where"].split("|")[-1].strip().lower())
+    # 🚫 Stronger duplicate task prevention
+    def is_duplicate(self, new_task, last_task):
+        """Check if task is essentially a repeat"""
+        if not last_task:
+            return False
+        same_location = new_task["when_where"].split("|")[-1].strip().lower() == last_task["when_where"].split("|")[-1].strip().lower()
+        same_type = new_task["photo_type"].lower() == last_task["photo_type"].lower()
+        return same_location and same_type
+
+    def regenerate_variation(self, task):
+        """Force variation in steps, exposures, prompts"""
+        # Rotate steps by shuffling order
+        random.shuffle(task["steps"])
+
+        # Change exposures if possible
+        if len(task["exposure_presets"]) > 3:
+            new_exposures = task["exposure_presets"][:]
+            random.shuffle(new_exposures)
+            task["exposure_presets"] = new_exposures[:min(4,len(new_exposures))]
+
+        # Always resample composition prompts
+        task["composition_prompts"] = random.sample(task["composition_prompts"], len(task["composition_prompts"]))
+
+        # Add variation note
+        task["title"] += " (Alt. Variation)"
+        task["summary"] += " | New creative variation for repeat location."
+
+        return task
+
+    def generate_task(self, params, history):
+        loc_data = self.analyze_location(params["location"])
+        steps = loc_data.get("specific_steps", [])[:]
+        
+        comp_prompts = self.get_composition_prompts(params["photo_type"])
+        exposures = self.generate_exposures(params["is_digital"], params.get("film_iso","400"), params["time_of_day"])
+
+        task = {
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "title": f"{params['time_of_day'].title()} {params['photo_type'].title()} @ {params['location']}",
+            "summary": f"{params['photo_type']} session in {params['location']} | {params['camera']} + {params['lens']} | {params['duration']} mins",
+            "when_where": f"{params['time_of_day'].title()} ({params['duration']} min) | {params['location']}",
+            "photo_type": params["photo_type"],
+            "camera": params["camera"],
+            "lens": params["lens"],
+            "lens_rationale": self.lens_rationale.get(params["lens"],"General purpose lens"),
+            "exposure_presets": exposures,
+            "steps": steps if steps else [
+                "Scout location for 10 minutes",
+                "Find an establishing shot",
+                "Look for details and textures",
+                "Capture candid human activity",
+                "Shoot from low and high perspectives"
+            ],
+            "composition_prompts": comp_prompts,
+            "contingencies": "Adapt to weather, crowd density, or lighting shifts",
+            "success_criteria": ["✓ 1 storytelling frame","✓ 1 reflection or abstract","✓ 10+ keepers"],
+            "safety_note": "⚠️ Be respectful of people, property, and stay aware of surroundings"
+        }
+
+        # 🚫 Duplicate check: if repeat location+genre, regenerate variation
+        last_task = history[-1] if history else None
+        if self.is_duplicate(task, last_task):
+            task = self.regenerate_variation(task)
+
+        return task
 
     # Task generator
     def generate_task(self, params, history):
