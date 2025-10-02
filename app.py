@@ -1376,4 +1376,89 @@ if page == "Planner":
         if task.get('weather_summary'):
             st.info(f"**🌦️ Current conditions:** {task['weather_summary']}")
         
-        st.info(f"**🔍
+        st.info(f"**🔍 Lens Rationale:** {task['lens_rationale']}")
+        
+        st.markdown("---")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("📐 Exposure Starting Points")
+            for exp in task['exposure_presets']:
+                st.markdown(f"- {exp}")
+            
+            st.markdown("")
+            st.subheader("🎨 Composition Prompts")
+            for prompt in task['composition_prompts']:
+                st.markdown(f"- {prompt}")
+        
+        with col2:
+            st.subheader("✅ Step-by-Step Checklist")
+            for i, step in enumerate(task['steps'], 1):
+                st.markdown(f"{i}. {step}")
+        
+        st.markdown("---")
+        st.info(f"**🔄 Contingencies:** {task['contingencies']}")
+        st.info(f"**🎯 Success Criteria:** {' | '.join(task['success_criteria'])}")
+        st.warning(task['safety_note'])
+
+# -------------------------------
+# History Page
+# -------------------------------
+elif page == "History":
+    st.title("📜 Task History")
+    history = load_history()
+    
+    if not history:
+        st.info("No tasks yet. Generate your first task!")
+    else:
+        st.markdown(f"*Showing last {len(history)} tasks*")
+        
+        if st.button("🗑️ Clear All History"):
+            if os.path.exists(HISTORY_FILE):
+                os.remove(HISTORY_FILE)
+            st.success("✅ History cleared!")
+            st.rerun()
+        
+        st.markdown("---")
+        
+        for i, task in enumerate(reversed(history), 1):
+            with st.expander(f"**{len(history) - i + 1}. {task.get('title', 'Untitled Task')}** — {task.get('date', 'No date')}"):
+                st.markdown(f"*{task.get('summary', '')}*")
+                st.markdown(f"**⏰ When/Where:** {task.get('when_where', '')}")
+                st.markdown(f"**📷 Gear:** {task.get('gear', '')}")
+                
+                if task.get('poi_name'):
+                    st.info(f"**📍 Route POIs:** {task['poi_name']}")
+                
+                if task.get('weather_summary'):
+                    st.info(f"**🌦️ Conditions:** {task['weather_summary']}")
+                
+                if task.get('lens_rationale'):
+                    st.info(f"**🔍 Lens Rationale:** {task['lens_rationale']}")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**📐 Exposure Presets:**")
+                    for exp in task.get('exposure_presets', []):
+                        st.markdown(f"- {exp}")
+                    
+                    st.markdown("")
+                    st.markdown("**🎨 Composition Prompts:**")
+                    for prompt in task.get('composition_prompts', []):
+                        st.markdown(f"- {prompt}")
+                
+                with col2:
+                    st.markdown("**✅ Steps:**")
+                    for j, step in enumerate(task.get('steps', []), 1):
+                        st.markdown(f"{j}. {step}")
+                
+                if task.get('contingencies'):
+                    st.info(f"**🔄 Contingencies:** {task['contingencies']}")
+                
+                if task.get('success_criteria'):
+                    st.info(f"**🎯 Success Criteria:** {' | '.join(task['success_criteria'])}")
+                
+                if task.get('safety_note'):
+                    st.warning(task['safety_note'])
